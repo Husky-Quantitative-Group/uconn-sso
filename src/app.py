@@ -5,27 +5,14 @@ import xml.etree.ElementTree as ET
 import requests
 from flask import Flask, request, redirect, Response
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 app = Flask(__name__)
 
 # Configure
-CAS_BASE = os.getenv("CAS_BASE", "https://login.uconn.edu/cas")
-# Set this to your public HTTPS callback, e.g. https://abcd1234.ngrok.io/callback
-SERVICE_URL = os.getenv("SERVICE_URL")  # REQUIRED
-
-def require_config():
-    if not SERVICE_URL:
-        return Response("Set SERVICE_URL env var to your public callback URL, e.g. https://<ngrok>.ngrok.io/callback", 500)
-    return None
+CAS_BASE = "https://login.uconn.edu/cas"
+SERVICE_URL = "http://localhost:3000/callback"
 
 @app.get("/")
 def index():
-    err = require_config()
-    if err:
-        return err
     return (
         "<a href='/login'>Login with UConn CAS</a><br>"
         f"CAS_BASE={CAS_BASE}<br>"
@@ -34,18 +21,11 @@ def index():
 
 @app.get("/login")
 def login():
-    err = require_config()
-    if err:
-        return err
     service = urllib.parse.quote(SERVICE_URL, safe="")
     return redirect(f"{CAS_BASE}/login?service={service}", code=302)
 
 @app.get("/callback")
 def callback():
-    err = require_config()
-    if err:
-        return err
-
     ticket = request.args.get("ticket")
     if not ticket:
         return Response("Missing ?ticket", 400)
