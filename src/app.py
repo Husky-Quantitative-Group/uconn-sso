@@ -10,6 +10,24 @@ app = Flask(__name__)
 # Configure
 CAS_BASE = "https://login.uconn.edu/cas"
 SERVICE_URL = "http://localhost:3000/callback"
+CAS_NS = {"cas": "http://www.yale.edu/tp/cas"}
+
+def validate_cas_ticket(ticket):
+    service_enc = urllib.parse.quote(SERVICE_URL, safe="")
+    validate_url = f"{CAS_BASE}/serviceValidate?service={service_enc}&ticket={urllib.parse.quote(ticket, safe='')}"
+    r = requests.get(validate_url, timeout=5)
+    xml = r.text
+
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return None
+
+    success = root.find("cas:authenticationSuccess", CAS_NS)
+    if success is None:
+        return None
+
+    return success.findtext("cas:user", default="", namespaces=CAS_NS) or None
 
 @app.get("/")
 def index():
@@ -28,53 +46,13 @@ def login():
 def callback():
     ticket = request.args.get("ticket")
     if not ticket:
-        return Response("Missing ?ticket", 400)
+        return Response("Failed", 400)
 
-    service_enc = urllib.parse.quote(SERVICE_URL, safe="")
-    validate_url = f"{CAS_BASE}/serviceValidate?service={service_enc}&ticket={urllib.parse.quote(ticket, safe='')}"
-    r = requests.get(validate_url, timeout=5)
-    xml = r.text
+    netid = validate_cas_ticket(ticket)
+    if netid:
+        return f"Success!<br>NetID: {netid}"
 
-    print(xml)
-
-    # Parse minimal CAS v2 response
-    ns = {"cas": "http://www.yale.edu/tp/cas"}
-    try:
-        root = ET.fromstring(xml)
-        success = root.find("cas:authenticationSuccess", ns)
-        if success is not None:
-            user = success.findtext("cas:user", default="", namespaces=ns)
-            attrs = success.find("cas:attributes", ns)
-            # Build a simple attributes dict if present
-            attr_lines = []
-            if attrs is not None:
-                for child in list(attrs):
-                    tag = child.tag.split("}", 1)[-1]  # strip namespace
-                    attr_lines.append(f"{tag}: {child.text}")
-            attr_block = "<br>".join(attr_lines) if attr_lines else "(no attributes)"
-
-            # Here is where you'd create your own app session.
-            return (
-                f"<h3>authenticationSuccess</h3>"
-                f"<b>user:</b> {user}<br>"
-                f"<b>attributes:</b><br>{attr_block}<br><br>"
-                f"<code>serviceValidate:</code><pre>{xml}</pre>"
-            )
-        else:
-            failure = root.find("cas:authenticationFailure", ns)
-            if failure is not None:
-                code = failure.attrib.get("code", "UNKNOWN")
-                msg = failure.text or ""
-                return (
-                    f"<h3>authenticationFailure</h3>"
-                    f"<b>code:</b> {code}<br>"
-                    f"<b>message:</b> {msg}<br><br>"
-                    f"<code>serviceValidate:</code><pre>{xml}</pre>", 401
-                )
-            # Unknown response
-            return f"<h3>Unknown CAS response</h3><pre>{xml}</pre>", 502
-    except ET.ParseError:
-        return f"<h3>Non-XML CAS response</h3><pre>{xml}</pre>", 502
+    return Response("Failed", 401)
 
 @app.get("/logout")
 def logout():
